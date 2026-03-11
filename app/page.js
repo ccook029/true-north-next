@@ -26,6 +26,8 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [projectName, setProjectName] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [specs, setSpecs] = useState({ dimensions: "", freespan: "", mezzanine: "", insulated: "Yes", notes: "" });
+  const setSpec = (key) => (val) => setSpecs(p => ({ ...p, [key]: val }));
   const [loading, setLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [error, setError] = useState("");
@@ -120,6 +122,7 @@ export default function App() {
       const payload = {
         customerName: customerName || "Valued Customer",
         projectName,
+        specs,
         currency,
         params,
         categoryTotals,
@@ -209,6 +212,41 @@ export default function App() {
                 <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>CUSTOMER NAME</label>
                 <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. John Smith / ABC Farms"
                   style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 14, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            {/* Building Specs */}
+            <div style={panelStyle}>
+              <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 16 }}>BUILDING SPECIFICATIONS</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {[
+                  { label: "OVERALL DIMENSIONS (L × W × H)", key: "dimensions", placeholder: "e.g. 200ft × 100ft × 18ft" },
+                  { label: "CLEAR SPAN / FREESPAN AREA", key: "freespan", placeholder: "e.g. 100ft × 100ft clear span" },
+                  { label: "MEZZANINE / SECOND LEVEL", key: "mezzanine", placeholder: "e.g. 100ft × 100ft second level" },
+                ].map(({ label, key, placeholder }) => (
+                  <div key={key}>
+                    <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>{label}</label>
+                    <input value={specs[key]} onChange={e => setSpec(key)(e.target.value)} placeholder={placeholder}
+                      style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 12, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>INSULATION</label>
+                  <div style={{ display: "flex", background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: 4, overflow: "hidden" }}>
+                    {["Yes", "No"].map(v => (
+                      <button key={v} onClick={() => setSpec("insulated")(v)} style={{
+                        flex: 1, padding: "8px", border: "none", cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+                        background: specs.insulated === v ? colors.accent : "transparent",
+                        color: specs.insulated === v ? "#000" : colors.muted,
+                      }}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>ADDITIONAL NOTES</label>
+                <textarea value={specs.notes} onChange={e => setSpec("notes")(e.target.value)} placeholder="e.g. Horse stalls on ground floor, office space above..."
+                  rows={3} style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 12, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box", resize: "vertical" }} />
               </div>
             </div>
 

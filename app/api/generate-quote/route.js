@@ -27,7 +27,7 @@ export async function POST(request) {
   try {
     const data = await request.json();
     const {
-      customerName, projectName, currency, params,
+      customerName, projectName, currency, params, specs,
       categoryTotals, totalShippingUSD, tariffUSD,
       taxAmount, taxLabel, totalCost, sellingPrice,
     } = data;
@@ -105,6 +105,16 @@ export async function POST(request) {
     <div style="font-size:11px;color:#c8a96e;margin-top:2px;">Valid Until: ${expiryDate()}</div>
   </div>
 </div>
+
+<div class="section-title">Building Specifications</div>
+<table>
+  <tr><th>Specification</th><th>Details</th></tr>
+  ${specs?.dimensions ? `<tr><td>Overall Dimensions</td><td>${specs.dimensions}</td></tr>` : ""}
+  ${specs?.freespan ? `<tr><td>Clear Span / Freespan</td><td>${specs.freespan}</td></tr>` : ""}
+  ${specs?.mezzanine ? `<tr><td>Mezzanine / Second Level</td><td>${specs.mezzanine}</td></tr>` : ""}
+  <tr><td>Insulation</td><td>${specs?.insulated || "Yes"}</td></tr>
+  ${specs?.notes ? `<tr><td>Additional Notes</td><td>${specs.notes}</td></tr>` : ""}
+</table>
 
 <div class="section-title">Building Components</div>
 <table>
