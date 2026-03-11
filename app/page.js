@@ -25,12 +25,14 @@ export default function App() {
   const [params, setParams] = useState(INITIAL_PARAMS);
   const [items, setItems] = useState([]);
   const [projectName, setProjectName] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [error, setError] = useState("");
   const [newItem, setNewItem] = useState({ name: "", usd: "" });
   const [dragging, setDragging] = useState(false);
   const [showItems, setShowItems] = useState(true);
-  const [currency, setCurrency] = useState("CAD"); // CAD or USD
+  const [currency, setCurrency] = useState("CAD");
 
   const setParam = (key) => (val) => setParams(p => ({ ...p, [key]: Number(val) }));
   const fmt = currency === "CAD" ? fmtCAD : fmtUSD;
@@ -45,16 +47,13 @@ export default function App() {
         r.onerror = () => rej(new Error("Read failed"));
         r.readAsDataURL(file);
       });
-
       const response = await fetch("/api/parse-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pdfBase64: base64 })
       });
-
       const parsed = await response.json();
       if (parsed.error) throw new Error(parsed.error);
-
       setProjectName(parsed.projectName || file.name);
       setItems((parsed.items || []).map((item, i) => ({ ...item, id: i + 1, enabled: true })));
       if (parsed.containers) setParams(p => ({ ...p, containers: parsed.containers }));
@@ -91,7 +90,6 @@ export default function App() {
   const hiddenCostsUSD = hiddenCostsCAD / params.exchRate;
 
   let totalCost, sellingPrice, grossProfit, taxAmount, taxLabel;
-
   if (currency === "CAD") {
     const subtotalCAD = (landedUSD + tariffUSD) * params.exchRate;
     const gstCAD = subtotalCAD * (params.gst / 100);
@@ -105,19 +103,52 @@ export default function App() {
     taxAmount = salesTaxUSD;
     taxLabel = `Sales Tax ${params.salesTax}%`;
   }
-
   sellingPrice = totalCost / (1 - params.margin / 100);
   grossProfit = sellingPrice - totalCost;
 
-  // Per category selling prices (margin baked in)
   const categories = [...new Set(items.map(i => i.category))];
   const categoryTotals = categories.map(cat => {
     const subtotalUSD = items.filter(i => i.category === cat && i.enabled).reduce((s, i) => s + Number(i.usd), 0);
     const subtotal = currency === "CAD" ? subtotalUSD * params.exchRate : subtotalUSD;
-    return { cat, selling: subtotal / (1 - params.margin / 100) };
+    return { cat, costSubtotal: subtotal, selling: subtotal / (1 - params.margin / 100) };
   });
 
-  const sqft = 20000; // 100x200
+  const generateQuote = async () => {
+    if (!items.length) return;
+    setQuoteLoading(true);
+    try {
+      const payload = {
+        customerName: customerName || "Valued Customer",
+        projectName,
+        currency,
+        params,
+        categoryTotals,
+        totalShippingUSD,
+        tariffUSD,
+        taxAmount,
+        taxLabel,
+        totalCost,
+        sellingPrice,
+        grossProfit,
+        exchRate: params.exchRate,
+      };
+      const response = await fetch("/api/generate-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error("Failed to generate quote");
+      const html = await response.text();
+      const win = window.open("", "_blank");
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => win.print(), 800);
+    } catch (err) {
+      setError("Could not generate quote: " + err.message);
+    } finally {
+      setQuoteLoading(false);
+    }
+  };
 
   const colors = { bg: "#060f1e", panel: "#0d1f35", border: "#1a3355", accent: "#c8a96e", blue: "#2a7fd4", text: "#d4dde8", muted: "#6a8aaa", dim: "#3a5570" };
   const panelStyle = { background: colors.panel, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, marginBottom: 24 };
@@ -130,14 +161,11 @@ export default function App() {
       <div style={{ background: "#080f1c", borderBottom: `2px solid ${colors.accent}`, padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <img src={LOGO_URL} alt="True North Steelworks" style={{ height: 48, objectFit: "contain" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          {/* Currency Toggle */}
           <div style={{ display: "flex", background: "#0a1628", border: `1px solid ${colors.border}`, borderRadius: 6, overflow: "hidden" }}>
             {["CAD", "USD"].map(c => (
               <button key={c} onClick={() => setCurrency(c)} style={{
                 padding: "8px 20px", border: "none", cursor: "pointer", fontSize: 12, fontFamily: "inherit", letterSpacing: 2, fontWeight: 600,
-                background: currency === c ? colors.accent : "transparent",
-                color: currency === c ? "#000" : colors.muted,
-                transition: "all 0.2s"
+                background: currency === c ? colors.accent : "transparent", color: currency === c ? "#000" : colors.muted,
               }}>{c}</button>
             ))}
           </div>
@@ -150,8 +178,6 @@ export default function App() {
 
       <div style={{ padding: "28px 32px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 28, alignItems: "start" }}>
-
-          {/* LEFT */}
           <div>
             {/* Upload */}
             <div onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
@@ -176,6 +202,16 @@ export default function App() {
               {error && <div style={{ color: "#e05555", fontSize: 11, marginTop: 12, padding: "8px 12px", background: "#1a0808", borderRadius: 4 }}>{error}</div>}
             </div>
 
+            {/* Customer Name */}
+            <div style={panelStyle}>
+              <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 16 }}>CUSTOMER DETAILS</div>
+              <div>
+                <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>CUSTOMER NAME</label>
+                <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. John Smith / ABC Farms"
+                  style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 14, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
             {/* Parameters */}
             <div style={panelStyle}>
               <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 20 }}>COST PARAMETERS</div>
@@ -189,8 +225,7 @@ export default function App() {
                 <Param label="TARGET MARGIN" value={params.margin} onChange={setParam("margin")} suffix="%" />
                 {currency === "CAD" && <Param label="USD → CAD RATE" value={params.exchRate} onChange={setParam("exchRate")} />}
               </div>
-              {/* Hidden costs — internal only */}
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid #111d2a` }}>
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #111d2a" }}>
                 <div style={{ fontSize: 10, color: colors.dim, letterSpacing: 2, marginBottom: 12 }}>HIDDEN COSTS (NOT SHOWN TO CUSTOMER)</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <Param label="ENGINEERING (CAD)" value={params.engineeringCAD} onChange={setParam("engineeringCAD")} prefix="$" />
@@ -245,7 +280,7 @@ export default function App() {
                 { label: "Landed Cost (USD)", value: fmtUSD(landedUSD), bold: true },
                 { label: `Tariff ${params.tariff}%`, value: fmtUSD(tariffUSD), warn: true },
                 { label: taxLabel, value: fmt(taxAmount) },
-                { label: `Hidden Costs`, value: fmt(currency === "CAD" ? hiddenCostsCAD : hiddenCostsUSD) },
+                { label: "Hidden Costs", value: fmt(currency === "CAD" ? hiddenCostsCAD : hiddenCostsUSD) },
                 { label: `Your Total Cost (${currency})`, value: fmt(totalCost), bold: true, highlight: true },
               ].map(({ label, value, bold, warn, highlight }) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #0f1e2e" }}>
@@ -268,7 +303,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Category breakdown for customer quote */}
+              {/* Category breakdown */}
               {items.length > 0 && (
                 <div style={{ marginTop: 14, background: "#080f1c", borderRadius: 6, padding: 14 }}>
                   <div style={{ fontSize: 10, color: colors.dim, letterSpacing: 2, marginBottom: 8 }}>CUSTOMER QUOTE BY CATEGORY</div>
@@ -278,11 +313,18 @@ export default function App() {
                       <span style={{ color: colors.accent }}>{fmt(selling)}</span>
                     </div>
                   ))}
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a2a3a" }}>
-                    <span style={{ color: colors.muted }}>Per sq ft (100×200)</span>
-                    <span style={{ color: colors.muted }}>{fmt(sellingPrice / sqft)}/sqft</span>
-                  </div>
                 </div>
+              )}
+
+              {/* Generate Quote Button */}
+              {items.length > 0 && (
+                <button onClick={generateQuote} disabled={quoteLoading} style={{
+                  marginTop: 16, width: "100%", padding: "14px", background: quoteLoading ? "#333" : colors.accent,
+                  border: "none", color: "#000", fontSize: 12, fontFamily: "inherit", fontWeight: 700, letterSpacing: 3,
+                  cursor: quoteLoading ? "not-allowed" : "pointer", borderRadius: 6,
+                }}>
+                  {quoteLoading ? "GENERATING..." : "⬇ GENERATE CUSTOMER QUOTE PDF"}
+                </button>
               )}
 
               {items.length === 0 && (
