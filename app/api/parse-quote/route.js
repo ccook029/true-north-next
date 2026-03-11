@@ -2,9 +2,7 @@ export async function POST(request) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return Response.json({ error: "ANTHROPIC_API_KEY not found in environment" }, { status: 500 });
-
     const { pdfBase64 } = await request.json();
-
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -14,7 +12,7 @@ export async function POST(request) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
+        max_tokens: 4000,
         messages: [{
           role: "user",
           content: [
@@ -24,32 +22,20 @@ export async function POST(request) {
             },
             {
               type: "text",
-              text: `Extract all line items from this factory quotation PDF. Return ONLY a JSON object like this, no preamble, no markdown:
-{
-  "projectName": "short description e.g. 40x60x14ft Warehouse",
-  "currency": "USD",
-  "containers": 1,
-  "items": [
-    { "category": "category name", "name": "item description", "usd": 1234.56 }
-  ]
-}
-For "containers": look for any FOB line that mentions the number of 40HQ or 20HQ containers (e.g. "3*40HQ container" = 3). Default to 1 if not found.
-Include every individual line item with its price in USD. If a price is in another currency, convert to USD using rates implied by the document or note it. Group items by their section/category from the document.`
+              text: "Extract all line items from this factory quotation PDF. Return ONLY raw JSON with no explanation, no markdown, no code blocks. Format: {\"projectName\":\"string\",\"currency\":\"USD\",\"containers\":1,\"items\":[{\"category\":\"string\",\"name\":\"string\",\"usd\":0.00}]}. Rules: containers = number before 40HQ or 20HQ (default 1). Every line item must have a numeric usd value. No trailing commas. Valid JSON only."
             }
           ]
         }]
       })
     });
-
     const data = await response.json();
     if (!response.ok) return Response.json({ error: "Anthropic API error", detail: data }, { status: 500 });
     const text = data.content?.map(b => b.text || "").join("") || "";
     const clean = text.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
-
     return Response.json(parsed);
   } catch (err) {
     console.error("API Error:", err);
-    return Response.json({ error: err.message, stack: err.stack }, { status: 500 });
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }
