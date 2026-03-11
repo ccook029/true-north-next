@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 
 const LOGO_URL = "https://assets.zyrosite.com/cdn-cgi/image/format=auto,w=375,fit=crop,q=95/mePxnP9KVEs5oWkD/true-north-steelworks-final---transparent-logo-YNqB7l2OLJF8rz5o.png";
 const INITIAL_PARAMS = { shipping: 6000, containers: 1, tariff: 25, gst: 5, salesTax: 8, margin: 35, exchRate: 1.44, engineeringCAD: 2500, miscCAD: 2000 };
+const INITIAL_SPECS = { length: "", width: "", height: "", freespan: "", mezzanine: "", insulated: true, notes: "" };
 
 const fmtCAD = (n) => new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 2 }).format(isNaN(n) ? 0 : n);
 const fmtUSD = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(isNaN(n) ? 0 : n);
@@ -21,13 +22,22 @@ function Param({ label, value, onChange, prefix, suffix }) {
   );
 }
 
+function TextInput({ label, value, onChange, placeholder }) {
+  return (
+    <div>
+      <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>{label}</label>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder || ""}
+        style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 13, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
 export default function App() {
   const [params, setParams] = useState(INITIAL_PARAMS);
   const [items, setItems] = useState([]);
   const [projectName, setProjectName] = useState("");
   const [customerName, setCustomerName] = useState("");
-  const [specs, setSpecs] = useState({ dimensions: "", freespan: "", mezzanine: "", insulated: "Yes", notes: "" });
-  const setSpec = (key) => (val) => setSpecs(p => ({ ...p, [key]: val }));
+  const [specs, setSpecs] = useState(INITIAL_SPECS);
   const [loading, setLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [error, setError] = useState("");
@@ -37,6 +47,7 @@ export default function App() {
   const [currency, setCurrency] = useState("CAD");
 
   const setParam = (key) => (val) => setParams(p => ({ ...p, [key]: Number(val) }));
+  const setSpec = (key) => (val) => setSpecs(p => ({ ...p, [key]: val }));
   const fmt = currency === "CAD" ? fmtCAD : fmtUSD;
 
   const parsePDF = async (file) => {
@@ -82,37 +93,45 @@ export default function App() {
     setNewItem({ name: "", usd: "" });
   };
 
-  // --- Calculations ---
+  // --- Calculations (all math in one place) ---
   const factoryUSD = items.filter(i => i.enabled).reduce((s, i) => s + (Number(i.usd) || 0), 0);
   const fobUSD = factoryUSD + 1300;
-  const totalShippingUSD = params.shipping * params.containers;
+  const totalShippingUSD = Number(params.shipping) * Number(params.containers);
   const landedUSD = fobUSD + totalShippingUSD;
-  const tariffUSD = landedUSD * (params.tariff / 100);
-  const hiddenCostsCAD = params.engineeringCAD + params.miscCAD;
-  const hiddenCostsUSD = hiddenCostsCAD / params.exchRate;
+  const tariffUSD = landedUSD * (Number(params.tariff) / 100);
+  const landedPlusTariffUSD = landedUSD + tariffUSD;
 
-  let totalCost, sellingPrice, grossProfit, taxAmount, taxLabel;
-  if (currency === "CAD") {
-    const subtotalCAD = (landedUSD + tariffUSD) * params.exchRate;
-    const gstCAD = subtotalCAD * (params.gst / 100);
-    totalCost = subtotalCAD + gstCAD + hiddenCostsCAD;
-    taxAmount = gstCAD;
-    taxLabel = `GST ${params.gst}%`;
-  } else {
-    const subtotalUSD = landedUSD + tariffUSD + hiddenCostsUSD;
-    const salesTaxUSD = subtotalUSD * (params.salesTax / 100);
-    totalCost = subtotalUSD + salesTaxUSD;
-    taxAmount = salesTaxUSD;
-    taxLabel = `Sales Tax ${params.salesTax}%`;
-  }
-  sellingPrice = totalCost / (1 - params.margin / 100);
-  grossProfit = sellingPrice - totalCost;
+  // Convert hidden costs to working currency
+  const hiddenCostsCAD = Number(params.engineeringCAD) + Number(params.miscCAD);
+  const hiddenCostsUSD = hiddenCostsCAD / Number(params.exchRate);
 
+  // Subtotal before tax in working currency
+  const subtotalBeforeTax = currency === "CAD"
+    ? (landedPlusTariffUSD * Number(params.exchRate)) + hiddenCostsCAD
+    : landedPlusTariffUSD + hiddenCostsUSD;
+
+  const taxRate = currency === "CAD" ? Number(params.gst) / 100 : Number(params.salesTax) / 100;
+  const taxAmount = subtotalBeforeTax * taxRate;
+  const taxLabel = currency === "CAD" ? `GST ${params.gst}%` : `Sales Tax ${params.salesTax}%`;
+  const totalCost = subtotalBeforeTax + taxAmount;
+  const sellingPrice = totalCost / (1 - Number(params.margin) / 100);
+  const grossProfit = sellingPrice - totalCost;
+
+  // Category selling prices — margin applied to product cost only (not shipping/tariff/tax)
   const categories = [...new Set(items.map(i => i.category))];
+  const totalProductCostInCurrency = categories.reduce((sum, cat) => {
+    const catUSD = items.filter(i => i.category === cat && i.enabled).reduce((s, i) => s + Number(i.usd), 0);
+    return sum + (currency === "CAD" ? catUSD * Number(params.exchRate) : catUSD);
+  }, 0);
+
   const categoryTotals = categories.map(cat => {
-    const subtotalUSD = items.filter(i => i.category === cat && i.enabled).reduce((s, i) => s + Number(i.usd), 0);
-    const subtotal = currency === "CAD" ? subtotalUSD * params.exchRate : subtotalUSD;
-    return { cat, costSubtotal: subtotal, selling: subtotal / (1 - params.margin / 100) };
+    const catUSD = items.filter(i => i.category === cat && i.enabled).reduce((s, i) => s + Number(i.usd), 0);
+    const catInCurrency = currency === "CAD" ? catUSD * Number(params.exchRate) : catUSD;
+    // Each category gets margin applied proportionally
+    const catWithMargin = totalProductCostInCurrency > 0
+      ? (catInCurrency / totalProductCostInCurrency) * (sellingPrice - (currency === "CAD" ? (totalShippingUSD + tariffUSD) * Number(params.exchRate) + taxAmount : totalShippingUSD + tariffUSD + taxAmount))
+      : catInCurrency / (1 - Number(params.margin) / 100);
+    return { cat, selling: catWithMargin };
   });
 
   const generateQuote = async () => {
@@ -132,8 +151,6 @@ export default function App() {
         taxLabel,
         totalCost,
         sellingPrice,
-        grossProfit,
-        exchRate: params.exchRate,
       };
       const response = await fetch("/api/generate-quote", {
         method: "POST",
@@ -182,6 +199,7 @@ export default function App() {
       <div style={{ padding: "28px 32px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 28, alignItems: "start" }}>
           <div>
+
             {/* Upload */}
             <div onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
               style={{ ...panelStyle, border: `2px dashed ${dragging ? colors.accent : colors.border}`, textAlign: "center", cursor: "pointer" }}
@@ -205,49 +223,30 @@ export default function App() {
               {error && <div style={{ color: "#e05555", fontSize: 11, marginTop: 12, padding: "8px 12px", background: "#1a0808", borderRadius: 4 }}>{error}</div>}
             </div>
 
-            {/* Customer Name */}
+            {/* Customer + Building Specs */}
             <div style={panelStyle}>
-              <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 16 }}>CUSTOMER DETAILS</div>
-              <div>
-                <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>CUSTOMER NAME</label>
-                <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="e.g. John Smith / ABC Farms"
-                  style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 14, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 16 }}>CUSTOMER & PROJECT DETAILS</div>
+              <div style={{ marginBottom: 16 }}>
+                <TextInput label="CUSTOMER NAME" value={customerName} onChange={setCustomerName} placeholder="e.g. John Smith / ABC Farms" />
               </div>
-            </div>
-
-            {/* Building Specs */}
-            <div style={panelStyle}>
-              <div style={{ fontSize: 10, color: colors.accent, letterSpacing: 3, marginBottom: 16 }}>BUILDING SPECIFICATIONS</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {[
-                  { label: "OVERALL DIMENSIONS (L × W × H)", key: "dimensions", placeholder: "e.g. 200ft × 100ft × 18ft" },
-                  { label: "CLEAR SPAN / FREESPAN AREA", key: "freespan", placeholder: "e.g. 100ft × 100ft clear span" },
-                  { label: "MEZZANINE / SECOND LEVEL", key: "mezzanine", placeholder: "e.g. 100ft × 100ft second level" },
-                ].map(({ label, key, placeholder }) => (
-                  <div key={key}>
-                    <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>{label}</label>
-                    <input value={specs[key]} onChange={e => setSpec(key)(e.target.value)} placeholder={placeholder}
-                      style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 12, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box" }} />
-                  </div>
-                ))}
-                <div>
-                  <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>INSULATION</label>
-                  <div style={{ display: "flex", background: "#0a1628", border: "1px solid #1e3a5f", borderRadius: 4, overflow: "hidden" }}>
-                    {["Yes", "No"].map(v => (
-                      <button key={v} onClick={() => setSpec("insulated")(v)} style={{
-                        flex: 1, padding: "8px", border: "none", cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-                        background: specs.insulated === v ? colors.accent : "transparent",
-                        color: specs.insulated === v ? "#000" : colors.muted,
-                      }}>{v}</button>
-                    ))}
-                  </div>
-                </div>
+              <div style={{ fontSize: 10, color: colors.dim, letterSpacing: 2, marginBottom: 12, paddingTop: 12, borderTop: "1px solid #111d2a" }}>BUILDING SPECIFICATIONS</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <TextInput label="LENGTH (ft)" value={specs.length} onChange={setSpec("length")} placeholder="e.g. 200" />
+                <TextInput label="WIDTH (ft)" value={specs.width} onChange={setSpec("width")} placeholder="e.g. 100" />
+                <TextInput label="EAVE HEIGHT (ft)" value={specs.height} onChange={setSpec("height")} placeholder="e.g. 18" />
               </div>
-              <div style={{ marginTop: 14 }}>
-                <label style={{ fontSize: 10, color: "#8a9bb0", letterSpacing: 2, display: "block", marginBottom: 6 }}>ADDITIONAL NOTES</label>
-                <textarea value={specs.notes} onChange={e => setSpec("notes")(e.target.value)} placeholder="e.g. Horse stalls on ground floor, office space above..."
-                  rows={3} style={{ width: "100%", background: "#0a1628", border: "1px solid #1e3a5f", color: "#e8eef5", padding: "8px 12px", fontSize: 12, fontFamily: "inherit", borderRadius: 4, outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <TextInput label="CLEAR SPAN / FREESPAN" value={specs.freespan} onChange={setSpec("freespan")} placeholder="e.g. 100x100" />
+                <TextInput label="MEZZANINE / 2ND LEVEL" value={specs.mezzanine} onChange={setSpec("mezzanine")} placeholder="e.g. 100x100 horse stalls" />
               </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <input type="checkbox" checked={specs.insulated} onChange={e => setSpecs(p => ({ ...p, insulated: e.target.checked }))}
+                  style={{ accentColor: colors.accent, cursor: "pointer", width: 16, height: 16 }} />
+                <label style={{ fontSize: 11, color: colors.muted, cursor: "pointer" }} onClick={() => setSpecs(p => ({ ...p, insulated: !p.insulated }))}>
+                  Fully Insulated
+                </label>
+              </div>
+              <TextInput label="ADDITIONAL NOTES" value={specs.notes} onChange={setSpec("notes")} placeholder="e.g. 2 rolling doors, special requirements..." />
             </div>
 
             {/* Parameters */}
@@ -317,8 +316,8 @@ export default function App() {
                 { label: `Ocean Freight (${params.containers}x $${Number(params.shipping).toLocaleString()})`, value: fmtUSD(totalShippingUSD) },
                 { label: "Landed Cost (USD)", value: fmtUSD(landedUSD), bold: true },
                 { label: `Tariff ${params.tariff}%`, value: fmtUSD(tariffUSD), warn: true },
+                { label: `Subtotal Before Tax (${currency})`, value: fmt(subtotalBeforeTax) },
                 { label: taxLabel, value: fmt(taxAmount) },
-                { label: "Hidden Costs", value: fmt(currency === "CAD" ? hiddenCostsCAD : hiddenCostsUSD) },
                 { label: `Your Total Cost (${currency})`, value: fmt(totalCost), bold: true, highlight: true },
               ].map(({ label, value, bold, warn, highlight }) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #0f1e2e" }}>
@@ -337,7 +336,7 @@ export default function App() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 4 }}>
                   <span style={{ color: "#4a7aaa" }}>Margin</span>
-                  <span style={{ color: "#6dcf8a" }}>{params.margin}% ({((params.margin / (100 - params.margin)) * 100).toFixed(1)}% markup)</span>
+                  <span style={{ color: "#6dcf8a" }}>{params.margin}% ({((Number(params.margin) / (100 - Number(params.margin))) * 100).toFixed(1)}% markup)</span>
                 </div>
               </div>
 
@@ -351,6 +350,14 @@ export default function App() {
                       <span style={{ color: colors.accent }}>{fmt(selling)}</span>
                     </div>
                   ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a2a3a" }}>
+                    <span style={{ color: colors.muted, fontWeight: 600 }}>Shipping + Duties + Tax</span>
+                    <span style={{ color: colors.muted }}>{fmt(sellingPrice - categoryTotals.reduce((s, c) => s + c.selling, 0))}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 6, paddingTop: 6, borderTop: "1px solid #2a3a4a" }}>
+                    <span style={{ color: "#fff", fontWeight: 700 }}>TOTAL</span>
+                    <span style={{ color: colors.accent, fontWeight: 700 }}>{fmt(sellingPrice)}</span>
+                  </div>
                 </div>
               )}
 
