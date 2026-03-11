@@ -22,19 +22,28 @@ function expiryDate() {
 export async function POST(request) {
   try {
     const data = await request.json();
-    const { customerName, projectName, specs, currency, params, categoryTotals, totalShippingUSD, tariffUSD, taxAmount, taxLabel, sellingPrice } = data;
+    const { customerName, projectName, specs, currency, params, categoryTotals, totalShippingUSD, taxAmount, taxLabel, sellingPrice } = data;
 
     const fmt = (n) => formatCurrency(n, currency);
-    const fmtUSD = (n) => formatCurrency(n, "USD");
     const quoteNum = quoteNumber();
 
-    const shippingDisplay = currency === "CAD" ? fmt(totalShippingUSD * params.exchRate) : fmtUSD(totalShippingUSD);
-    const tariffDisplay = currency === "CAD" ? fmt(tariffUSD * params.exchRate) : fmtUSD(tariffUSD);
+    // Shipping in display currency (actual cost, passed through)
+    const shippingDisplay = currency === "CAD"
+      ? totalShippingUSD * params.exchRate
+      : totalShippingUSD;
 
-    const categorySum = categoryTotals.reduce((s, c) => s + c.selling, 0);
-    const shippingTaxLine = sellingPrice - categorySum;
+    // Category prices have margin baked in from page.js
+    // BUT we need to also bake tariff + hidden costs into them
+    // sellingPrice = categoryTotals sum + shipping + tax
+    // So: adjusted category sum = sellingPrice - shipping - tax
+    const adjustedCategoryTotal = sellingPrice - shippingDisplay - taxAmount;
+    const rawCategorySum = categoryTotals.reduce((s, c) => s + c.selling, 0);
+    const scaleFactor = rawCategorySum > 0 ? adjustedCategoryTotal / rawCategorySum : 1;
+    const adjustedCategories = categoryTotals.map(c => ({
+      cat: c.cat,
+      selling: c.selling * scaleFactor
+    }));
 
-    // Build specs HTML
     const specRows = [
       specs.length && specs.width ? `<tr><td>Overall Dimensions</td><td>${specs.length} ft × ${specs.width} ft${specs.height ? ` × ${specs.height} ft (eave height)` : ""}</td></tr>` : "",
       specs.freespan ? `<tr><td>Clear Span / Freespan</td><td>${specs.freespan}</td></tr>` : "",
@@ -111,25 +120,14 @@ ${specRows ? `
   ${specRows}
 </table>` : ""}
 
-<div class="section-title">Building Components</div>
+<div class="section-title">Pricing Summary</div>
 <table>
-  <tr><th>Category</th><th class="right">Price (${currency})</th></tr>
-  ${categoryTotals.map(({ cat, selling }) => `
+  <tr><th>Item</th><th class="right">Price (${currency})</th></tr>
+  ${adjustedCategories.map(({ cat, selling }) => `
   <tr><td>${cat}</td><td class="right">${fmt(selling)}</td></tr>
   `).join("")}
-  <tr class="subtotal-row"><td>Components Subtotal</td><td class="right">${fmt(categorySum)}</td></tr>
-</table>
-
-<div class="section-title">Shipping, Duties & Tax</div>
-<table>
-  <tr><th>Item</th><th class="right">Amount (${currency})</th></tr>
-  <tr><td>Ocean Freight (${params.containers} × 40HQ Container${params.containers > 1 ? "s" : ""})</td><td class="right">${shippingDisplay}</td></tr>
-  <tr><td>Import Tariff (${params.tariff}%)</td><td class="right">${tariffDisplay}</td></tr>
+  <tr><td>Ocean Freight (${params.containers} × 40HQ Container${params.containers > 1 ? "s" : ""})</td><td class="right">${fmt(shippingDisplay)}</td></tr>
   <tr><td>${taxLabel}</td><td class="right">${fmt(taxAmount)}</td></tr>
-  <tr class="subtotal-row"><td>Shipping, Duties & Tax Subtotal</td><td class="right">${fmt(shippingTaxLine)}</td></tr>
-</table>
-
-<table style="margin-top:8px;">
   <tr class="total-row">
     <td>TOTAL INVESTMENT (${currency})</td>
     <td class="right">${fmt(sellingPrice)}</td>
@@ -138,8 +136,8 @@ ${specRows ? `
 
 <div class="disclaimers">
   <div class="disc-title">Important Notices</div>
-  <div class="disclaimer">Shipping costs are estimated based on current carrier rates as of ${todayDate()} and are subject to change at the time of order confirmation. Final shipping costs will be confirmed prior to invoicing.</div>
-  <div class="disclaimer">Quoted tariff rates reflect current trade and import duty conditions. Any changes to applicable tariffs or import duties enacted prior to order confirmation may affect final pricing. True North Steelworks will notify the customer of any material changes before proceeding.</div>
+  <div class="disclaimer">Shipping costs are estimated based on current carrier rates as of ${todayDate()} and are subject to change at the time of order confirmation. Any material differences will be communicated prior to invoicing.</div>
+  <div class="disclaimer">Building component pricing reflects current import duty and tariff conditions. Any changes to applicable tariffs or import duties enacted prior to order confirmation may affect final pricing. True North Steelworks will notify the customer of any such changes before proceeding.</div>
   <div class="disclaimer">This quote is valid for 7 days from the date of issue. Pricing beyond this period is subject to review and may change without notice.</div>
 </div>
 
