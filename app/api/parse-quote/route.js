@@ -31,7 +31,11 @@ export async function POST(request) {
     const data = await response.json();
     if (!response.ok) return Response.json({ error: "Anthropic API error", detail: data }, { status: 500 });
     const text = data.content?.map(b => b.text || "").join("") || "";
-    const clean = text.replace(/```json|```/g, "").trim();
+    let clean = text.replace(/```json|```/g, "").trim();
+    const start = clean.indexOf('{');
+    const end = clean.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error("No JSON object found in response");
+    clean = clean.slice(start, end + 1);
     const parsed = JSON.parse(clean);
     return Response.json(parsed);
   } catch (err) {
