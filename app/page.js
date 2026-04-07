@@ -383,6 +383,9 @@ export default function App() {
       </div>
 
       <div style={{ textAlign: "center", padding: "16px 0 24px", fontSize: 10, color: colors.dim, letterSpacing: 2 }}>
+        <a href="/building-designer" style={{ color: colors.accent, textDecoration: "none", marginRight: 16, letterSpacing: 2 }}>
+          ◆ BUILDING DESIGN TOOL
+        </a>
         TRUENORTHSTEELWORKS.COM · INTERNAL PRICING TOOL
       </div>
     </div>
