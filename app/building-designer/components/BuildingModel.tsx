@@ -271,21 +271,31 @@ function GableWall({
 }
 
 function RoofPanel({
-  width,
-  slopeLength,
-  position,
-  rotation,
+  p0,
+  p1,
+  p2,
+  p3,
   color,
 }: {
-  width: number;
-  slopeLength: number;
-  position: [number, number, number];
-  rotation: [number, number, number];
+  p0: [number, number, number]; // bottom-left
+  p1: [number, number, number]; // bottom-right
+  p2: [number, number, number]; // top-right (ridge)
+  p3: [number, number, number]; // top-left (ridge)
   color: string;
 }) {
+  const geometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+      ...p0, ...p1, ...p2,
+      ...p0, ...p2, ...p3,
+    ]);
+    geo.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+    geo.computeVertexNormals();
+    return geo;
+  }, [p0, p1, p2, p3]);
+
   return (
-    <mesh position={position} rotation={rotation}>
-      <planeGeometry args={[width, slopeLength]} />
+    <mesh geometry={geometry}>
       <CorrugatedMaterial color={color} side={THREE.DoubleSide} />
     </mesh>
   );
@@ -327,8 +337,6 @@ export default function BuildingModel({ config }: { config: BuildingConfig }) {
   const h = wallHeight * SCALE;
   const peakRise = (width / 2) * (roofPitch / 12);
   const peakH = peakRise * SCALE;
-  const slopeLength = Math.sqrt((w / 2) ** 2 + peakH ** 2);
-  const roofAngle = Math.atan2(peakH, w / 2);
   const roofOverhang = 1 * SCALE;
 
   // Calculate cutouts for each wall
@@ -436,21 +444,21 @@ export default function BuildingModel({ config }: { config: BuildingConfig }) {
         </>
       )}
 
-      {/* Roof - left slope */}
+      {/* Roof - left slope (eave on -x side, ridge at center) */}
       <RoofPanel
-        width={l + roofOverhang * 2}
-        slopeLength={slopeLength + roofOverhang}
-        position={[-w / 4, h + peakH / 2, 0]}
-        rotation={[0, Math.PI / 2, roofAngle]}
+        p0={[-w / 2 - roofOverhang * 0.3, h, -l / 2 - roofOverhang]}
+        p1={[-w / 2 - roofOverhang * 0.3, h, l / 2 + roofOverhang]}
+        p2={[0, h + peakH, l / 2 + roofOverhang]}
+        p3={[0, h + peakH, -l / 2 - roofOverhang]}
         color={roofColor}
       />
 
-      {/* Roof - right slope */}
+      {/* Roof - right slope (eave on +x side, ridge at center) */}
       <RoofPanel
-        width={l + roofOverhang * 2}
-        slopeLength={slopeLength + roofOverhang}
-        position={[w / 4, h + peakH / 2, 0]}
-        rotation={[0, Math.PI / 2, -roofAngle]}
+        p0={[w / 2 + roofOverhang * 0.3, h, l / 2 + roofOverhang]}
+        p1={[w / 2 + roofOverhang * 0.3, h, -l / 2 - roofOverhang]}
+        p2={[0, h + peakH, -l / 2 - roofOverhang]}
+        p3={[0, h + peakH, l / 2 + roofOverhang]}
         color={roofColor}
       />
 
